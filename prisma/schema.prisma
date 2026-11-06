@@ -1,0 +1,125 @@
+// Prisma schema for Secure Authentication & Anomaly Detection System (Sentinel)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  name           String?
+  passwordHash   String
+  totpSecret     String?
+  totpEnabled    Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  sessions       Session[]
+  devices        Device[]
+  loginLogs      LoginLog[]
+  recoveryCodes  RecoveryCode[]
+  alerts         SecurityAlert[]
+  resetTokens    PasswordResetToken[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id           String   @id @default(cuid())
+  userId       String
+  fingerprint  String
+  name         String
+  browser      String
+  os           String
+  lastLocation String?
+  isTrusted    Boolean  @default(true)
+  lastActive   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+}
+
+model LoginLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  identifier  String
+  ip          String
+  city        String?
+  country     String?
+  lat         Float?
+  lon         Float?
+  browser     String?
+  os          String?
+  device      String?
+  status      String   // "Success", "Blocked", "MFA_Challenge", "Failed"
+  riskScore   Int      // 0 to 100
+  riskFactors String?  // JSON string array e.g. ["UNFAMILIAR_DEVICE", "IMPOSSIBLE_TRAVEL"]
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SecurityAlert {
+  id         String    @id @default(cuid())
+  userId     String
+  title      String
+  detail     String
+  level      String    // "High", "Medium", "Low"
+  riskScore  Int
+  isResolved Boolean   @default(false)
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  used      Boolean   @default(false)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Persistent sliding-window counter for login rate limiting / lockout.
+// Replaces the old in-memory Maps so limits survive restarts and work
+// across multiple server instances. `key` is "ip:<ip>" or "acct:<email>".
+model RateLimitBucket {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  count       Int       @default(0)
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
